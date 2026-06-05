@@ -8,8 +8,9 @@ TEMPLATE_DE = os.path.join(BASE_DIR, "Mein_Holstein_Kiel_SSO_Kick-off.pptx")
 TEMPLATE_EN = os.path.join(BASE_DIR, "SFL_EN_Template.pptx")
 
 # Brand accent colors to replace
-DE_COLOR = "005397"
-EN_COLOR = "003DA5"
+DE_COLOR      = "005397"   # HK blue — text + setup boxes
+EN_COLOR      = "003DA5"   # SFL blue — text
+EN_FILL_COLOR = "007699"   # SFL teal — setup boxes (different from text color!)
 
 # Logo: top-right, 6.61 x 6.61 cm (same as HK)
 LOGO_LEFT = Emu(int(24.82 * 914400 / 2.54))
@@ -199,6 +200,9 @@ def generate(config: dict, output_path: str):
     if ci_primary:
         replace_fill_color(prs, base_color, ci_primary)
         replace_text_color(prs, base_color, ci_primary)
+        # EN template uses a separate teal (007699) for setup boxes
+        if is_en:
+            replace_fill_color(prs, EN_FILL_COLOR, ci_primary)
     if ci_text and ci_text != ci_primary:
         replace_text_color(prs, ci_primary if ci_primary else base_color, ci_text)
 
