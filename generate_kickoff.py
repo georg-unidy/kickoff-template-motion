@@ -5,11 +5,13 @@ from pptx.dml.color import RGBColor
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DE = os.path.join(BASE_DIR, "Mein_Holstein_Kiel_SSO_Kick-off.pptx")
-TEMPLATE_EN = os.path.join(BASE_DIR, "SFL_SSO_Kick-off.pptx")
+TEMPLATE_EN = os.path.join(BASE_DIR, "SFL_EN_Template.pptx")
 
+# Brand accent colors to replace
 DE_COLOR = "005397"
 EN_COLOR = "003DA5"
 
+# Logo: top-right, 6.61 x 6.61 cm (same as HK)
 LOGO_LEFT = Emu(int(24.82 * 914400 / 2.54))
 LOGO_TOP  = Emu(int(0.85  * 914400 / 2.54))
 LOGO_SIZE = Emu(int(6.61  * 914400 / 2.54))
@@ -20,6 +22,11 @@ AGENDA = [
     "Setup & Versions",
     "Intro Customer Page",
 ]
+
+# Slide indices (0-based) — identical for both templates after trimming
+IDX_COVER   = 0
+IDX_SETUP   = 7   # slide 8
+
 
 def replace_run_text(shape, old, new):
     if not shape.has_text_frame:
@@ -34,7 +41,7 @@ def replace_run_text(shape, old, new):
 
 def hex_to_rgb(h):
     h = h.lstrip("#").upper()
-    return RGBColor(int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
+    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 def replace_fill_color(prs, old, new):
     rgb = hex_to_rgb(new)
@@ -45,33 +52,41 @@ def replace_fill_color(prs, old, new):
                 if str(shape.fill.fore_color.rgb).upper() == old:
                     shape.fill.solid()
                     shape.fill.fore_color.rgb = rgb
-            except: pass
+            except:
+                pass
 
 def replace_text_color(prs, old, new):
     rgb = hex_to_rgb(new)
     old = old.upper().lstrip("#")
     for slide in prs.slides:
         for shape in slide.shapes:
-            if not shape.has_text_frame: continue
+            if not shape.has_text_frame:
+                continue
             for para in shape.text_frame.paragraphs:
                 for run in para.runs:
                     try:
                         if str(run.font.color.rgb).upper() == old:
                             run.font.color.rgb = rgb
-                    except: pass
+                    except:
+                        pass
 
 def is_agenda_shape(shape):
-    if not shape.has_text_frame: return False
-    paras = [p for p in shape.text_frame.paragraphs if ''.join(r.text for r in p.runs).strip()]
-    if len(paras) != 4: return False
+    if not shape.has_text_frame:
+        return False
+    paras = [p for p in shape.text_frame.paragraphs
+             if ''.join(r.text for r in p.runs).strip()]
+    if len(paras) != 4:
+        return False
     combined = ' '.join(''.join(r.text for r in p.runs) for p in paras)
     return 'Intro' in combined and ('Setup' in combined or 'Versions' in combined)
 
 def set_agenda_shape(shape, bold_idx):
-    paras = [p for p in shape.text_frame.paragraphs if ''.join(r.text for r in p.runs).strip()]
+    paras = [p for p in shape.text_frame.paragraphs
+             if ''.join(r.text for r in p.runs).strip()]
     for i, para in enumerate(paras):
         new_text = AGENDA[i] if i < len(AGENDA) else ""
-        for run in para.runs: run.text = ""
+        for run in para.runs:
+            run.text = ""
         if para.runs:
             para.runs[0].text = new_text
             para.runs[0].font.bold = (i == bold_idx)
@@ -87,14 +102,15 @@ def insert_logo(slide, logo_url):
     r.raise_for_status()
     slide.shapes.add_picture(io.BytesIO(r.content), LOGO_LEFT, LOGO_TOP, LOGO_SIZE, LOGO_SIZE)
 
+
 def generate(config: dict, output_path: str):
     brand        = config.get("brand_name", "Brand")
     date         = config.get("kickoff_date", "TBD")
     language     = config.get("language", "de").strip().lower()
-    csm_name     = config.get("csm_name", "")
     csm_email    = config.get("csm_email", "service@unidy.de")
+    csm_name     = config.get("csm_name", "")
     csm_phone    = config.get("csm_phone", "")
-    goals        = config.get("goals", ["","","",""])
+    goals        = config.get("goals", ["", "", "", ""])
     integrations = config.get("integrations_v1", [])
     go_live_date = config.get("go_live_date", "")
     notion_url   = config.get("notion_url", "")
@@ -102,21 +118,23 @@ def generate(config: dict, output_path: str):
     ci_primary   = config.get("ci_primary_color", "").lstrip("#").upper()
     ci_text      = config.get("ci_text_color", "").lstrip("#").upper()
 
-    while len(goals) < 4: goals.append("")
+    while len(goals) < 4:
+        goals.append("")
 
     is_en = language in ("en", "english", "englisch")
     template_path = TEMPLATE_EN if is_en else TEMPLATE_DE
-    base_color = EN_COLOR if is_en else DE_COLOR
+    base_color    = EN_COLOR if is_en else DE_COLOR
 
     prs = Presentation(template_path)
-    slide1 = prs.slides[0]
 
     parts = date.split("/")
     dd   = parts[0] if len(parts) > 0 else ""
     mm   = parts[1] if len(parts) > 1 else ""
     yyyy = parts[2] if len(parts) > 2 else ""
 
-    # ── Cover ─────────────────────────────────────────────────────────────────
+    # ── Cover (Slide 1) ───────────────────────────────────────────────────────
+    slide1 = prs.slides[IDX_COVER]
+
     if is_en:
         for shape in slide1.shapes:
             replace_run_text(shape, "SFL ID", f"{brand} ID")
@@ -124,18 +142,18 @@ def generate(config: dict, output_path: str):
             replace_run_text(shape, "15/12/2025", f"{dd}/{mm}/{yyyy}")
     else:
         for shape in slide1.shapes:
-            # HK brand name is a single run, no " ID" — we add it
+            # HK has "Mein Holstein Kiel" without " ID"
             replace_run_text(shape, "Mein Holstein Kiel", f"{brand} ID")
-            # Date split across runs: '03' '/0' '6' '/2026'
+            # Date split: '03' '/06' '/2026'
             replace_run_text(shape, "03", dd)
             replace_run_text(shape, "/06", f"/{mm}")
             replace_run_text(shape, "/2026", f"/{yyyy}")
 
     if logo_url:
-        remove_picture(slide1, 1)  # remove existing customer logo (index 1)
+        remove_picture(slide1, 1)   # index 1 = customer logo (index 0 = Unidy logo)
         insert_logo(slide1, logo_url)
 
-    # ── Agenda ────────────────────────────────────────────────────────────────
+    # ── Agenda (all agenda slides) ────────────────────────────────────────────
     agenda_count = 0
     for slide in prs.slides:
         for shape in slide.shapes:
@@ -144,20 +162,21 @@ def generate(config: dict, output_path: str):
                 agenda_count += 1
                 break
 
-    # ── Setup slide title ─────────────────────────────────────────────────────
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if is_en:
-                replace_run_text(shape, "SFL Setup", f"{brand} Setup")
-                replace_run_text(shape, '"BSC Young Boys" Setup', f'"{brand}" Setup')
-            else:
-                replace_run_text(shape, "Mein Holstein Kiel SSO Setup", f"{brand} SSO Setup")
+    # ── Setup slide (Slide 8) ─────────────────────────────────────────────────
+    for shape in prs.slides[IDX_SETUP].shapes:
+        if is_en:
+            replace_run_text(shape, "SFL Setup", f"{brand} Setup")
+            replace_run_text(shape, "SFL", brand)
+        else:
+            replace_run_text(shape, "Mein Holstein Kiel SSO Setup", f"{brand} SSO Setup")
+            replace_run_text(shape, "Mein Holstein Kiel", brand)
 
-    # ── Goals ─────────────────────────────────────────────────────────────────
+    # ── Goals (anywhere in deck) ──────────────────────────────────────────────
     for slide in prs.slides:
         for shape in slide.shapes:
             for i, goal in enumerate(goals[:4], 1):
-                if goal: replace_run_text(shape, f"Goal {i}", goal)
+                if goal:
+                    replace_run_text(shape, f"Goal {i}", goal)
             replace_run_text(shape, "Hier noch JGS Goals einbauen", "")
             replace_run_text(shape,
                 "https://www.notion.so/unidy-gmbh/Customer-Outcomes-and-Customer-Personas-31e5a77a0d338015b860eca1bda9a136", "")
@@ -184,6 +203,7 @@ def generate(config: dict, output_path: str):
         replace_text_color(prs, ci_primary if ci_primary else base_color, ci_text)
 
     prs.save(output_path)
+
 
 if __name__ == "__main__":
     import argparse
