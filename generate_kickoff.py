@@ -3,12 +3,23 @@ from pptx import Presentation
 from pptx.util import Emu
 from pptx.dml.color import RGBColor
 
-TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Kick-Off Template.pptx")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DE = os.path.join(BASE_DIR, "Mein_Holstein_Kiel_SSO_Kick-off.pptx")
+TEMPLATE_EN = os.path.join(BASE_DIR, "SFL_SSO_Kick-off.pptx")
 
-# Default brand color used in template (YBB yellow / placeholder)
-DEFAULT_FILL_COLOR = "F9CC11"
-# Default text accent color used in template
-DEFAULT_TEXT_COLOR = "0055FF"
+DE_COLOR = "005397"
+EN_COLOR = "003DA5"
+
+LOGO_LEFT = Emu(int(24.82 * 914400 / 2.54))
+LOGO_TOP  = Emu(int(0.85  * 914400 / 2.54))
+LOGO_SIZE = Emu(int(6.61  * 914400 / 2.54))
+
+AGENDA = [
+    "Intro Unidy",
+    "Intro Instance & Admin",
+    "Setup & Versions",
+    "Intro Customer Page",
+]
 
 def replace_run_text(shape, old, new):
     if not shape.has_text_frame:
@@ -21,168 +32,156 @@ def replace_run_text(shape, old, new):
                 changed = True
     return changed
 
-def replace_across_runs(shape, old_parts, new_text):
-    if not shape.has_text_frame:
-        return False
-    for para in shape.text_frame.paragraphs:
-        runs = para.runs
-        for i in range(len(runs)):
-            if i + len(old_parts) > len(runs):
-                continue
-            if all(runs[i+j].text == old_parts[j] for j in range(len(old_parts))):
-                runs[i].text = new_text
-                for j in range(1, len(old_parts)):
-                    runs[i+j].text = ""
-                return True
-    return False
+def hex_to_rgb(h):
+    h = h.lstrip("#").upper()
+    return RGBColor(int(h[0:2],16), int(h[2:4],16), int(h[4:6],16))
 
-def hex_to_rgb(hex_str):
-    hex_str = hex_str.lstrip("#")
-    return RGBColor(int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16))
-
-def replace_fill_color(prs, old_hex, new_hex):
-    """Replace all shape fill colors matching old_hex with new_hex."""
-    new_rgb = hex_to_rgb(new_hex)
-    old_hex = old_hex.upper()
-    count = 0
+def replace_fill_color(prs, old, new):
+    rgb = hex_to_rgb(new)
+    old = old.upper().lstrip("#")
     for slide in prs.slides:
         for shape in slide.shapes:
             try:
-                current = str(shape.fill.fore_color.rgb).upper()
-                if current == old_hex:
+                if str(shape.fill.fore_color.rgb).upper() == old:
                     shape.fill.solid()
-                    shape.fill.fore_color.rgb = new_rgb
-                    count += 1
-            except:
-                pass
-    return count
+                    shape.fill.fore_color.rgb = rgb
+            except: pass
 
-def replace_text_color(prs, old_hex, new_hex):
-    """Replace all run font colors matching old_hex with new_hex."""
-    new_rgb = hex_to_rgb(new_hex)
-    old_hex = old_hex.upper()
-    count = 0
+def replace_text_color(prs, old, new):
+    rgb = hex_to_rgb(new)
+    old = old.upper().lstrip("#")
     for slide in prs.slides:
         for shape in slide.shapes:
-            if not shape.has_text_frame:
-                continue
+            if not shape.has_text_frame: continue
             for para in shape.text_frame.paragraphs:
                 for run in para.runs:
                     try:
-                        current = str(run.font.color.rgb).upper()
-                        if current == old_hex:
-                            run.font.color.rgb = new_rgb
-                            count += 1
-                    except:
-                        pass
-    return count
+                        if str(run.font.color.rgb).upper() == old:
+                            run.font.color.rgb = rgb
+                    except: pass
 
-def insert_logo(slide, logo_url, left_emu, top_emu, width_emu, height_emu):
-    """Download logo from URL and insert at given position, removing placeholder text."""
-    # Remove "Add Brand Logo here" placeholder
-    for shape in slide.shapes:
-        replace_run_text(shape, "Add Brand Logo here", "")
+def is_agenda_shape(shape):
+    if not shape.has_text_frame: return False
+    paras = [p for p in shape.text_frame.paragraphs if ''.join(r.text for r in p.runs).strip()]
+    if len(paras) != 4: return False
+    combined = ' '.join(''.join(r.text for r in p.runs) for p in paras)
+    return 'Intro' in combined and ('Setup' in combined or 'Versions' in combined)
 
-    # Download image
-    response = requests.get(logo_url, timeout=15)
-    response.raise_for_status()
-    img_data = io.BytesIO(response.content)
+def set_agenda_shape(shape, bold_idx):
+    paras = [p for p in shape.text_frame.paragraphs if ''.join(r.text for r in p.runs).strip()]
+    for i, para in enumerate(paras):
+        new_text = AGENDA[i] if i < len(AGENDA) else ""
+        for run in para.runs: run.text = ""
+        if para.runs:
+            para.runs[0].text = new_text
+            para.runs[0].font.bold = (i == bold_idx)
 
-    slide.shapes.add_picture(img_data, left_emu, top_emu, width_emu, height_emu)
+def remove_picture(slide, index):
+    pics = [s for s in slide.shapes if s.shape_type == 13]
+    if index < len(pics):
+        el = pics[index]._element
+        el.getparent().remove(el)
+
+def insert_logo(slide, logo_url):
+    r = requests.get(logo_url, timeout=15)
+    r.raise_for_status()
+    slide.shapes.add_picture(io.BytesIO(r.content), LOGO_LEFT, LOGO_TOP, LOGO_SIZE, LOGO_SIZE)
 
 def generate(config: dict, output_path: str):
     brand        = config.get("brand_name", "Brand")
     date         = config.get("kickoff_date", "TBD")
+    language     = config.get("language", "de").strip().lower()
     csm_name     = config.get("csm_name", "")
     csm_email    = config.get("csm_email", "service@unidy.de")
     csm_phone    = config.get("csm_phone", "")
-    goals        = config.get("goals", ["Goal 1", "Goal 2", "Goal 3", "Goal 4"])
+    goals        = config.get("goals", ["","","",""])
     integrations = config.get("integrations_v1", [])
     go_live_date = config.get("go_live_date", "")
     notion_url   = config.get("notion_url", "")
     logo_url     = config.get("logo_url", "")
-    # CI colors — hex strings without #, e.g. "F9CC11"
     ci_primary   = config.get("ci_primary_color", "").lstrip("#").upper()
     ci_text      = config.get("ci_text_color", "").lstrip("#").upper()
 
-    while len(goals) < 4:
-        goals.append("")
+    while len(goals) < 4: goals.append("")
+
+    is_en = language in ("en", "english", "englisch")
+    template_path = TEMPLATE_EN if is_en else TEMPLATE_DE
+    base_color = EN_COLOR if is_en else DE_COLOR
+
+    prs = Presentation(template_path)
+    slide1 = prs.slides[0]
 
     parts = date.split("/")
     dd   = parts[0] if len(parts) > 0 else ""
     mm   = parts[1] if len(parts) > 1 else ""
     yyyy = parts[2] if len(parts) > 2 else ""
 
-    prs = Presentation(TEMPLATE_PATH)
-
-    # ── Slide 1: Cover ──────────────────────────────────────────
-    for shape in prs.slides[0].shapes:
-        replace_across_runs(shape, ["Brand", " ID"], f"{brand} ID")
-        replace_run_text(shape, "dd",   dd)
-        replace_run_text(shape, "mm",   mm)
-        replace_run_text(shape, "yyyy", yyyy)
-
-    # Insert logo at same position as YBB (top right, ~4.47 x 4.47 cm)
-    if logo_url:
-        insert_logo(
-            prs.slides[0],
-            logo_url,
-            left_emu   = Emu(10246150),
-            top_emu    = Emu(315337),
-            width_emu  = Emu(1610900),
-            height_emu = Emu(1610900),
-        )
+    # ── Cover ─────────────────────────────────────────────────────────────────
+    if is_en:
+        for shape in slide1.shapes:
+            replace_run_text(shape, "SFL ID", f"{brand} ID")
+            replace_run_text(shape, "SFL", brand)
+            replace_run_text(shape, "15/12/2025", f"{dd}/{mm}/{yyyy}")
     else:
-        for shape in prs.slides[0].shapes:
-            replace_run_text(shape, "Add Brand Logo here", "")
+        for shape in slide1.shapes:
+            # HK brand name is a single run, no " ID" — we add it
+            replace_run_text(shape, "Mein Holstein Kiel", f"{brand} ID")
+            # Date split across runs: '03' '/0' '6' '/2026'
+            replace_run_text(shape, "03", dd)
+            replace_run_text(shape, "/06", f"/{mm}")
+            replace_run_text(shape, "/2026", f"/{yyyy}")
 
-    # ── Slide 9: CSM Contact ─────────────────────────────────────
-    for shape in prs.slides[8].shapes:
-        if csm_name:
-            replace_run_text(shape, "Infos hier:", csm_name)
-        replace_run_text(shape, "service@unidy.de", csm_email)
-        if csm_phone:
-            replace_run_text(shape, "Handynummer für Notfälle", csm_phone)
+    if logo_url:
+        remove_picture(slide1, 1)  # remove existing customer logo (index 1)
+        insert_logo(slide1, logo_url)
 
-    # ── Slide 12: Setup title ────────────────────────────────────
-    for shape in prs.slides[11].shapes:
-        replace_across_runs(shape, ['\u201cB', 'rand', '\u201d Setup'],
-                            f'\u201c{brand}\u201d Setup')
+    # ── Agenda ────────────────────────────────────────────────────────────────
+    agenda_count = 0
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if is_agenda_shape(shape):
+                set_agenda_shape(shape, bold_idx=agenda_count % 4)
+                agenda_count += 1
+                break
 
-    # ── Slide 13: Goals ──────────────────────────────────────────
-    for shape in prs.slides[12].shapes:
-        for i, goal in enumerate(goals[:4], 1):
-            if goal:
-                replace_run_text(shape, f"Goal {i}", goal)
-        replace_run_text(shape, "Hier noch JGS Goals einbauen", "")
-        replace_run_text(shape,
-            "https://www.notion.so/unidy-gmbh/Customer-Outcomes-and-Customer-Personas-31e5a77a0d338015b860eca1bda9a136", "")
+    # ── Setup slide title ─────────────────────────────────────────────────────
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if is_en:
+                replace_run_text(shape, "SFL Setup", f"{brand} Setup")
+                replace_run_text(shape, '"BSC Young Boys" Setup', f'"{brand}" Setup')
+            else:
+                replace_run_text(shape, "Mein Holstein Kiel SSO Setup", f"{brand} SSO Setup")
 
-    # ── Slide 16: Next Steps ─────────────────────────────────────
-    for shape in prs.slides[15].shapes:
-        if integrations:
-            integ_str = " · ".join(integrations[:3])
+    # ── Goals ─────────────────────────────────────────────────────────────────
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            for i, goal in enumerate(goals[:4], 1):
+                if goal: replace_run_text(shape, f"Goal {i}", goal)
+            replace_run_text(shape, "Hier noch JGS Goals einbauen", "")
             replace_run_text(shape,
-                "Kunden kontaktiert alle Integrationspartner mit ",
-                f"Integrationen V1: {integ_str} – Partner kontaktieren mit ")
-        if go_live_date:
-            replace_run_text(shape,
-                "Go-Live Checklist on Customer Page with Customer To Dos",
-                f"Go-Live Checklist · Ziel: {go_live_date}")
-        if notion_url:
-            replace_run_text(shape, "Erwähnung Notion Page", f"Notion: {notion_url}")
+                "https://www.notion.so/unidy-gmbh/Customer-Outcomes-and-Customer-Personas-31e5a77a0d338015b860eca1bda9a136", "")
 
-    # ── CI Colors (global, applied last) ─────────────────────────
-    # Shape fill colors (setup diagram boxes etc.)
+    # ── Next Steps ────────────────────────────────────────────────────────────
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if integrations:
+                replace_run_text(shape,
+                    "Kunden kontaktiert alle Integrationspartner mit ",
+                    f"Integrationen V1: {' · '.join(integrations[:3])} - Partner kontaktieren mit ")
+            if go_live_date:
+                replace_run_text(shape,
+                    "Go-Live Checklist on Customer Page with Customer To Dos",
+                    f"Go-Live Checklist - Ziel: {go_live_date}")
+            if notion_url:
+                replace_run_text(shape, "Erwähnung Notion Page", f"Notion: {notion_url}")
+
+    # ── CI Colors ─────────────────────────────────────────────────────────────
     if ci_primary:
-        replace_fill_color(prs, DEFAULT_FILL_COLOR, ci_primary)
-
-    # Text accent color (brand name on cover, section labels etc.)
-    if ci_text:
-        replace_text_color(prs, DEFAULT_TEXT_COLOR, ci_text)
-    elif ci_primary:
-        # If only primary given, use it for text too
-        replace_text_color(prs, DEFAULT_TEXT_COLOR, ci_primary)
+        replace_fill_color(prs, base_color, ci_primary)
+        replace_text_color(prs, base_color, ci_primary)
+    if ci_text and ci_text != ci_primary:
+        replace_text_color(prs, ci_primary if ci_primary else base_color, ci_text)
 
     prs.save(output_path)
 
