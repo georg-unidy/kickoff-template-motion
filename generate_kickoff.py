@@ -123,6 +123,39 @@ def replace_cover_text_colors(slide, new_hex):
                         srgb_new = etree.SubElement(solid, f"{{{ns}}}srgbClr")
                         srgb_new.set("val", new_hex.upper().lstrip("#"))
 
+def replace_center_crest(slide, logo_url, is_en):
+    """Replace the center crest on the setup diagram with the customer logo."""
+    # HK: Shape 20 is center crest; SFL EN: Shape 15
+    # Identify by position: left ~11-12cm, top ~9-11cm, width < 3cm
+    target = None
+    for shape in slide.shapes:
+        if shape.shape_type != 13:
+            continue
+        left = shape.left / 914400 * 2.54
+        top  = shape.top  / 914400 * 2.54
+        w    = shape.width / 914400 * 2.54
+        if 9 < left < 13 and 8 < top < 12 and w < 3:
+            target = shape
+            break
+    if target is None:
+        return
+
+    # Save position and size
+    left   = target.left
+    top    = target.top
+    width  = target.width
+    height = target.height
+
+    # Remove old crest
+    el = target._element
+    el.getparent().remove(el)
+
+    # Insert new logo at same position
+    import requests as req, io
+    r = req.get(logo_url, timeout=15)
+    r.raise_for_status()
+    slide.shapes.add_picture(io.BytesIO(r.content), left, top, width, height)
+
 def remove_picture(slide, index):
     pics = [s for s in slide.shapes if s.shape_type == 13]
     if index < len(pics):
@@ -195,6 +228,8 @@ def generate(config: dict, output_path: str):
                 break
 
     # ── Setup slide (Slide 8) ─────────────────────────────────────────────────
+    if logo_url:
+        replace_center_crest(prs.slides[IDX_SETUP], logo_url, is_en)
     for shape in prs.slides[IDX_SETUP].shapes:
         if is_en:
             replace_run_text(shape, "SFL Setup", f"{brand} Setup")
